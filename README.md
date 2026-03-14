@@ -21,3 +21,18 @@ It doesn't remember the past. It treats every hand as if it's coming from a fres
 ### How to Run
 1. Install dependencies: `pip install gymnasium numpy matplotlib seaborn`
 2. Run the main script: `python main.py`
+
+## Neural Net Blackjack
+An AI that uses a Deep Neural Network to master Blackjack, considering player totals, dealer cards, and deck counting.
+
+### Getting Started
+1. Install dependencies:
+   `pip install torch gymnasium matplotlib seaborn numpy`
+2. Run the project:
+   `python main.py`
+
+### The AI Architecture
+The model is a Feed-Forward Neural Network with 2 hidden layers (64 neurons each). It uses the **MSE Loss** of the Bellman Equation to optimize its decision-making.
+
+### Limitations
+To truly make the AI "count" cards, you would need to wrap the Gymnasium environment in a custom class that tracks the deck state (since the default Blackjack-v1 uses an infinite deck)
