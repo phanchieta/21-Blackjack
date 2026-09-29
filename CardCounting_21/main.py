@@ -21,7 +21,17 @@ def policy_fn(player_sum, dealer_upcard, usable_ace, true_count):
 
 def edge_vs_true_count(n_hands):
     """Re-simulate, bucketing each hand's outcome by the true count it was
-    dealt at, to trace out how the player's edge moves with the count."""
+    dealt at, to trace out how the player's edge moves with the count.
+
+    Extreme counts are rare (a 6-deck shoe spends >99% of hands below true
+    count +7), so this needs a much larger sample than the other charts to
+    avoid the tail buckets being pure noise -- an earlier version of this
+    chart used 500k hands and a min-n of 30, which was noisy enough to make
+    the crossover point look like +9 to +12; a 4,000,000-hand run found the
+    real crossover closer to +7, with individual buckets beyond that still
+    noisy on a few hundred samples. min_n=300 here is still a compromise,
+    not a guarantee -- treat single extreme-count points as directional.
+    """
     env = ShoeBlackjackEnv(seed=202)
     buckets = defaultdict(lambda: [0.0, 0])  # true_count bucket -> [reward sum, n]
     all_counts = []
@@ -39,12 +49,13 @@ def edge_vs_true_count(n_hands):
         buckets[tc_bucket][0] += reward
         buckets[tc_bucket][1] += 1
 
-    edge_by_count = {tc: s / n for tc, (s, n) in buckets.items() if n >= 30}
+    edge_by_count = {tc: s / n for tc, (s, n) in buckets.items() if n >= 300}
     return edge_by_count, all_counts
 
 
 def main():
     n_hands = 500_000
+    n_hands_edge = 3_000_000  # extreme true counts are rare; needs a much bigger sample to not be noise
 
     print(f"Simulating {n_hands:,} hands each, matched shoes (same seed -> identical cards, "
           f"since both use the same count-blind playing policy and differ only in bet size)...")
@@ -63,8 +74,8 @@ def main():
     print(f"Win {flat_stats['win_rate']:.1%}  Push {flat_stats['push_rate']:.1%}  Loss {flat_stats['loss_rate']:.1%}")
     print(f"Edge: {flat_stats['edge_pct']:+.2f}%   Final bankroll: {flat_stats['final_bankroll']:,.0f}")
 
-    print("\nComputing player edge vs. true count...")
-    edge_by_count, all_counts = edge_vs_true_count(n_hands)
+    print(f"\nComputing player edge vs. true count ({n_hands_edge:,} hands)...")
+    edge_by_count, all_counts = edge_vs_true_count(n_hands_edge)
 
     plot_bankroll(hilo_stats["bankroll_trajectory"], flat_stats["bankroll_trajectory"],
                   save_path="results\\bankroll_trajectory.png")
