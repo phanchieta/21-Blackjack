@@ -1,14 +1,15 @@
 import numpy as np
 
-def save_q_table(q_table, filename="blackjack_brain.npy"):
-    # Convert dictionary to a numpy object array for saving
-    np.save(filename, q_table)
+
+def save_checkpoint(q_table, history, filename="checkpoints\\blackjack_brain.npy"):
+    np.save(filename, {"q_table": q_table, "history": history})
     print(f"Model saved to {filename}")
 
-def load_q_table(filename="blackjack_brain.npy"):
+
+def load_checkpoint(filename="checkpoints\\blackjack_brain.npy"):
     try:
-        # Allow_pickle is needed because our keys are tuples
-        return np.load(filename, allow_pickle=True).item()
+        data = np.load(filename, allow_pickle=True).item()
+        return data["q_table"], data["history"]
     except FileNotFoundError:
         print("No saved model found. Starting with a fresh brain.")
-        return {}
+        return {}, []
