@@ -46,10 +46,12 @@ def is_natural(hand):
 class ShoeBlackjackEnv:
     """A reset()/step() env like Gymnasium's, backed by a finite reshuffling shoe."""
 
-    def __init__(self, num_decks=6, penetration=0.75, natural=True, seed=None):
+    def __init__(self, num_decks=6, penetration=0.75, blackjack_payout=1.5,
+                 dealer_hits_soft_17=False, seed=None):
         self.num_decks = num_decks
         self.penetration = penetration
-        self.natural = natural
+        self.blackjack_payout = blackjack_payout  # 1.5 = 3:2 (standard), 1.2 = 6:5, 1.0 = even money
+        self.dealer_hits_soft_17 = dealer_hits_soft_17  # False = S17 (standard), True = H17
         self._rng = random.Random(seed)
         self.shoe = []
         self.cursor = 0
@@ -107,13 +109,15 @@ class ShoeBlackjackEnv:
 
         # stand: reveal the hole card, play out the dealer, resolve
         self._tag(self.dealer[1])
-        while sum_hand(self.dealer) < 17:
+        while sum_hand(self.dealer) < 17 or (
+            self.dealer_hits_soft_17 and sum_hand(self.dealer) == 17 and usable_ace(self.dealer)
+        ):
             card = self._draw()
             self.dealer.append(card)
             self._tag(card)
         reward = cmp(score(self.player), score(self.dealer))
-        if self.natural and is_natural(self.player) and reward == 1.0:
-            reward = 1.5
+        if is_natural(self.player) and reward == 1.0:
+            reward = self.blackjack_payout
         return self._obs(), reward, True, False, {}
 
 

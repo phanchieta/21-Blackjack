@@ -18,7 +18,7 @@ def main():
     # 6-deck shoe with Hi-Lo true-count tracking -- this is what makes the 4th
     # input feature (true_count) real signal instead of the hardcoded 0 the
     # old infinite-deck version had no choice but to use.
-    env = ShoeBlackjackEnv(num_decks=6, penetration=0.75, natural=True)
+    env = ShoeBlackjackEnv(num_decks=6, penetration=0.75)
     model = BlackjackNet(input_dim=4, output_dim=2)
 
     history = load_checkpoint(model, filename=CHECKPOINT)

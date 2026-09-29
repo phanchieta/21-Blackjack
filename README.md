@@ -70,6 +70,11 @@ before you read the numbers as "counting barely helps":
   over Basic Strategy comes from bet sizing, not play deviations, and the
   DQN's learned play has a small residual gap to *exact*-EV basic strategy
   (visible in its strategy heatmaps below — see NeuralNet_21's notes).
+- **This table uses this repo's default rules** (6-deck, dealer stands soft
+  17, blackjack pays 3:2, no surrender). Those rules are all now
+  independently adjustable, and stacking every favorable one *does* push a
+  counter into positive territory — see `rule_impact.py` below for exactly
+  how much each rule is worth, and how far.
 
 ## Repo structure
 
@@ -81,6 +86,8 @@ Simple_21/        Tabular Q-learning, infinite deck (no counting)
 CardCounting_21/  Classic rule-based Hi-Lo counter (no ML)
 NeuralNet_21/     DQN on the 6-deck shoe, count-aware
 compare.py        Runs all of the above head-to-head, matched hands
+rule_impact.py    Sweeps individual blackjack rules (H17, payout, surrender,
+                   deck count) to measure what each one is actually worth
 ```
 
 Each of the three agent folders is runnable standalone (`python main.py`
@@ -213,6 +220,84 @@ the large sample the edge-vs-true-count chart needs to not be noise).
 
 ---
 
+## rule_impact.py — how much do the rules matter?
+
+`CardCounting_21` answers "does counting help" for this repo's *default*
+ruleset. This script asks the natural follow-up: how much of that -2.5%
+baseline comes from this ruleset's own choices, and is there *any*
+combination of rules that gets a counter into positive territory without
+adding double-down back in?
+
+`common/shoe_env.py` now exposes three more real rule toggles on top of deck
+count and penetration: `blackjack_payout` (3:2, 6:5, or any multiplier),
+`dealer_hits_soft_17`, and late surrender
+(`common/basic_strategy.py`'s `should_surrender()` — computed the same
+exact-EV way as everything else here: surrender is correct exactly when
+continuing's best available EV is worse than the guaranteed -0.5 EV of
+forfeiting the hand).
+
+![Rule impact tornado chart](results/rule_impact_tornado.png)
+
+Each bar is this repo's own measured edge delta from flipping one rule,
+against [Wizard of Odds' published deltas](https://wizardofodds.com/games/blackjack/rule-variations/)
+for the same rules (measured against a *full-rules*, double/split-available
+baseline, so exact agreement isn't expected):
+
+| Rule | Measured here | Wizard of Odds (full rules) |
+|---|---|---|
+| Dealer hits soft 17 | -0.21% | -0.22% |
+| Blackjack pays 6:5 | -1.25% | -1.39% |
+| Single deck (vs. 6-deck) | +0.21% (+0.37% at a larger 2M-hand sample) | +0.46% |
+| Late surrender | **+0.56%** | +0.07% to +0.24% |
+
+Three of four land close to the published numbers — reassuring, since it
+means the simulation is measuring what it claims to. Surrender is the one
+real exception, and it's explainable rather than a red flag: published
+surrender numbers are small *because* double-down and split already rescue
+most of the hands that would otherwise need it. Take those options away and
+surrender is left to salvage value from a much wider range of bad hands on
+its own — this repo's exact solver finds it's correct on totals as high as
+hard 17 against a dealer ace, well beyond a standard surrender chart. (An
+earlier pass at 300,000 hands made H17 and deck count look similarly
+"suppressed" by the missing double-down, which would have been a tidy
+unifying story — except it was wrong. Re-run at 2,000,000 hands, both landed
+right back on the published numbers. Only surrender's gap held up at the
+larger sample, which is what makes it a real finding rather than noise that
+happened to fit a nice narrative.)
+
+### So, can we get to positive without double-down?
+
+Yes — barely, and only by stacking every favorable lever this ruleset has at
+once: a single deck, surrender, and Hi-Lo spread betting. Measured across
+three independent 2,000,000-hand runs:
+
+```
+Best case (1-deck, S17, 3:2, surrender, Hi-Lo spread):
+  seed=1: edge=+0.386%
+  seed=2: edge=+0.552%
+  seed=3: edge=+0.315%
+```
+
+Consistently positive — in the same ballpark as real-world single-deck
+advantage play. The worst combination of the same levers (8 decks, H17,
+6:5, no surrender, flat bet) comes out to -3.95%: roughly a 4.3-point swing
+in player edge from rule choices alone, before any skill the player brings.
+
+![Deck count vs counting's edge gain](results/rule_impact_deck_sweep.png)
+
+The deck-count sweep shows the more standard reason advantage players
+actually care about deck count: it barely moves the flat-bet *baseline*
+(orange, nearly flat across 1-8 decks), but it visibly changes how much
+*counting adds* on top (the gap to the green Hi-Lo line) — fewer decks means
+the true count swings harder per card removed, so the same bet spread
+extracts more value. That's why single- and double-deck games are the ones
+real counters seek out, and why casinos that still spread them tend to
+shuffle earlier specifically to blunt this effect.
+
+Run it: `python rule_impact.py` from the repo root (~2-3 minutes).
+
+---
+
 ## NeuralNet_21 — Deep Q-Network
 
 A from-scratch DQN rebuild. The original version here had two problems: no
@@ -279,7 +364,10 @@ checkpoint is found).
 
 ## common/ — the shared engine
 
-- **`shoe_env.py`** — the 6-deck shoe with Hi-Lo running/true count, described above.
+- **`shoe_env.py`** — the 6-deck shoe with Hi-Lo running/true count, described
+  above. Deck count, penetration, blackjack payout (3:2/6:5/any multiplier),
+  and dealer hit/stand-on-soft-17 are all constructor parameters — see
+  `rule_impact.py` for how much each one actually matters.
 - **`basic_strategy.py`** — rather than transcribe a textbook basic-strategy
   chart from memory (risky: most published charts assume double-down is
   available, and cells that say "double, else stand" vs. "double, else hit"
@@ -287,7 +375,12 @@ checkpoint is found).
   optimal hit/stand policy from first principles** via expected-value
   recursion over the standard infinite-deck card distribution, memoized into
   a lookup table. It's the ground truth the other agents are compared
-  against throughout this README.
+  against throughout this README. Also computes the exact optimal late-
+  surrender decision the same way (`should_surrender()`), and supports
+  computing both under dealer-stands-soft-17 and dealer-hits-soft-17 — which
+  turn out to select the *identical* action on all 360 cells in this
+  2-action ruleset (H17 only changes double-down decisions, which don't
+  exist here), a useful, verified simplification for `rule_impact.py`.
 - **`card_counting.py`** — the Hi-Lo tag table and the bet spread (1-16
   units, empirically tuned against a multi-million-hand simulation rather
   than assumed — see "Does counting actually overcome the house edge here?"
@@ -297,7 +390,8 @@ checkpoint is found).
   `NeuralNet_21` as a package.
 - **`bankroll_sim.py`** — runs any (playing policy, bet function) pair over
   many hands and reports win/push/loss rates, edge%, and a bankroll
-  trajectory. Used by every module above.
+  trajectory. Used by every module above. Takes an optional surrender
+  function, checked once right after the deal, before any play decision.
 - **`plot_style.py`** — one consistent, colorblind-validated palette so a
   given strategy is always the same color across every chart in this repo.
 
@@ -306,12 +400,20 @@ checkpoint is found).
 Every agent here plays a simplified 2-action game (stand/hit only — no
 double-down, no split), matching the scope of Gymnasium's original
 `Blackjack-v1`. That's a real ruleset simplification, not just a training
-convenience: real basic strategy's double/split plays are worth a
-meaningful chunk of the ~1.5-2% they add back to the player's side, so every
-house-edge number in this README (-2% to -3%) is steeper than the ~0.5%
-commonly cited for full-rules casino blackjack. Card counting still works
-the same way and still measurably improves edge — it's just working against
-a harder baseline throughout.
+convenience: per [Wizard of Odds](https://wizardofodds.com/games/blackjack/rule-variations/),
+no-double alone costs -1.48% and no-split another -0.57% — accounting for
+almost exactly the gap between this repo's -2.5% baseline and the ~0.5%
+commonly cited for full-rules casino blackjack.
+
+Deck count, penetration, dealer hit/stand-on-soft-17, blackjack payout, and
+late surrender are *not* simplified away — they're real, independently
+adjustable rules (`common/shoe_env.py`, `common/basic_strategy.py`), and
+`rule_impact.py` measures exactly what each one is worth, including a
+combination that gets this ruleset to a genuine, verified positive edge
+without ever adding double-down back in. Double-down and split themselves
+remain the one true gap: adding them would mean a 3rd/4th action, a bigger
+basic-strategy solver, and retraining both RL agents from scratch — out of
+scope for now, but the biggest lever left if this repo grows further.
 
 ## Setup
 
@@ -333,4 +435,5 @@ cd Simple_21 && python main.py            # ~1 min
 cd ../CardCounting_21 && python main.py   # ~2 min
 cd ../NeuralNet_21 && python main.py      # ~6 min
 cd .. && python compare.py                # ~1 min, needs both checkpoints above to exist
+python rule_impact.py                     # ~2-3 min, independent of the above
 ```

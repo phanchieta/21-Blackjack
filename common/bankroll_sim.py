@@ -6,12 +6,16 @@ a common 4-tuple so every policy_fn sees the same shape regardless of env.
 """
 
 
-def simulate(env, policy_fn, bet_fn, n_hands, starting_bankroll=10_000.0, unit_size=1.0):
+def simulate(env, policy_fn, bet_fn, n_hands, starting_bankroll=10_000.0, unit_size=1.0, surrender_fn=None):
     """
     env: an object with reset() -> (obs, info) and step(action) -> (obs, reward, terminated, truncated, info)
     policy_fn: (player_sum, dealer_upcard, usable_ace, true_count) -> 0 (stand) or 1 (hit)
     bet_fn: (true_count) -> bet size in units; multiplied by unit_size for the actual wager.
             true_count reflects the shoe state *before* this hand's cards are dealt.
+    surrender_fn: optional (player_sum, dealer_upcard, usable_ace, true_count) -> bool.
+            Checked once, right after the deal, before policy_fn ever runs. If it
+            returns True the hand ends immediately at reward=-0.5 (half the bet
+            forfeited) and play never starts -- matching real late surrender.
     """
     bankroll = starting_bankroll
     trajectory = [bankroll]
@@ -25,14 +29,18 @@ def simulate(env, policy_fn, bet_fn, n_hands, starting_bankroll=10_000.0, unit_s
         obs, _ = env.reset()
         if len(obs) == 3:
             obs = (*obs, 0.0)
-        done = False
-        reward = 0.0
-        while not done:
-            action = policy_fn(*obs)
-            obs, reward, terminated, truncated, _ = env.step(action)
-            if len(obs) == 3:
-                obs = (*obs, 0.0)
-            done = terminated or truncated
+
+        if surrender_fn is not None and surrender_fn(*obs):
+            reward = -0.5
+        else:
+            done = False
+            reward = 0.0
+            while not done:
+                action = policy_fn(*obs)
+                obs, reward, terminated, truncated, _ = env.step(action)
+                if len(obs) == 3:
+                    obs = (*obs, 0.0)
+                done = terminated or truncated
 
         bankroll += bet * reward
         total_wagered += bet
@@ -57,7 +65,7 @@ if __name__ == "__main__":
     from pathlib import Path
 
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from common.basic_strategy import basic_strategy_action
+    from common.basic_strategy import basic_strategy_action, should_surrender
     from common.shoe_env import ShoeBlackjackEnv
 
     env = ShoeBlackjackEnv(seed=7)
@@ -73,3 +81,19 @@ if __name__ == "__main__":
     assert 0.40 < stats["win_rate"] < 0.46
     assert 0.03 < stats["push_rate"] < 0.12
     print("bankroll_sim smoke test passed")
+
+    env2 = ShoeBlackjackEnv(seed=7)
+    stats2 = simulate(
+        env2,
+        policy_fn=lambda ps, du, ua, tc: basic_strategy_action(ps, du, ua),
+        bet_fn=lambda tc: 1,
+        n_hands=100_000,
+        surrender_fn=lambda ps, du, ua, tc: should_surrender(ps, du, ua),
+    )
+    # Not a paired comparison: surrendering a hand consumes fewer cards than
+    # playing it out, so the shoe diverges from `env` after the first
+    # surrender. Both are still valid independent large-sample estimates.
+    print(f"basic strategy + surrender, flat bet, 100k hands: edge={stats2['edge_pct']:.2f}% "
+          f"vs. {stats['edge_pct']:.2f}% without surrender")
+    assert stats2["edge_pct"] > stats["edge_pct"], "surrender should never make edge worse (it's optional -0.5 EV insurance)"
+    print("surrender smoke test passed")
