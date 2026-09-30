@@ -15,6 +15,7 @@ BLUE = "#2a78d6"
 ORANGE = "#eb6834"
 AQUA = "#1baf7a"
 YELLOW = "#eda100"
+MAGENTA = "#e87ba4"
 RED = "#e34948"
 
 SURFACE = "#fcfcfb"
@@ -31,6 +32,7 @@ STRATEGY_COLORS = {
     "Basic Strategy (no count)": ORANGE,
     "Hi-Lo Counting": AQUA,
     "DQN (count-aware)": YELLOW,
+    "Hi-Lo, favorable rules": MAGENTA,
 }
 
 # Binary action heatmaps (Stand=0, Hit=1) -- a 2-class categorical, not a

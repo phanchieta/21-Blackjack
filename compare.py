@@ -1,4 +1,4 @@
-"""Head-to-head comparison of all four strategies in this repo, on matched
+"""Head-to-head comparison of all strategies in this repo, on matched
 conditions, producing the repo's headline charts.
 
 Rows:
@@ -6,13 +6,18 @@ Rows:
   2. Basic strategy        -- flat bet,        6-deck shoe,   count-blind
   3. Hi-Lo counting        -- Hi-Lo bet spread, 6-deck shoe,   basic strategy + count-aware betting
   4. DQN                   -- Hi-Lo bet spread, 6-deck shoe,   learned count-aware play
+  5. Hi-Lo, favorable rules -- Hi-Lo bet spread, 1-deck shoe + surrender, basic strategy
 
 Rows 2 and 3 share a seed and an identical playing policy (basic strategy),
 so they see identical cards and isolate exactly what the bet spread adds over
 flat betting. Row 1 is evaluated under natural=True payouts (despite being
 trained under natural=False) to match the other rows' payout rules -- always
 standing on a made/natural 21 is optimal regardless of the payout multiplier,
-so the trained policy is still valid there.
+so the trained policy is still valid there. Row 5 is the only row that
+changes the *rules*, not just the strategy -- see rule_impact.py for the
+full rule-by-rule breakdown of why. It's still a no-double/no-split 2-action
+game, same as every other row; the only differences are deck count and
+surrender, both real, independently adjustable rules in common/shoe_env.py.
 """
 import numpy as np
 import torch
@@ -22,7 +27,7 @@ from common.plot_style import STRATEGY_COLORS, INK_MUTED, apply_style, savefig  
 import matplotlib.pyplot as plt
 
 from common.bankroll_sim import simulate
-from common.basic_strategy import basic_strategy_action
+from common.basic_strategy import basic_strategy_action, should_surrender
 from common.card_counting import bet_units
 from common.dqn_model import BlackjackNet, normalize_obs
 from common.shoe_env import ShoeBlackjackEnv
@@ -31,13 +36,15 @@ import gymnasium as gym
 
 apply_style()
 
-N_HANDS = 300_000
+N_HANDS = 1_000_000
 SEED = 555
 Q_LEARNING = "Q-Learning (no count)"
 BASIC_STRATEGY = "Basic Strategy (no count)"
 HILO = "Hi-Lo Counting"
 DQN = "DQN (count-aware)"
+HILO_FAVORABLE = "Hi-Lo, favorable rules"
 FLAT_BET = lambda tc: 1
+SURRENDER_FN = lambda ps, du, ua, tc: should_surrender(ps, du, ua)
 
 
 def load_qtable_policy():
@@ -73,7 +80,7 @@ def plot_bankroll_comparison(results, save_path):
     plt.figure(figsize=(9.5, 6))
     for name, stats in results.items():
         plt.plot(stats["bankroll_trajectory"], color=STRATEGY_COLORS[name], linewidth=1.6, label=name)
-    plt.title("Bankroll Over Hands: All Four Strategies")
+    plt.title("Bankroll Over Hands: All Five Strategies")
     plt.xlabel("Hand #")
     plt.ylabel("Bankroll (units)")
     plt.legend(frameon=False)
@@ -101,7 +108,7 @@ def plot_summary_bars(results, save_path):
 
 
 def main():
-    print(f"Running {N_HANDS:,}-hand matched comparison across 4 strategies...\n")
+    print(f"Running {N_HANDS:,}-hand matched comparison across 5 strategies...\n")
 
     results = {}
 
@@ -118,6 +125,13 @@ def main():
     dqn_policy = load_dqn_policy()
     env4 = ShoeBlackjackEnv(seed=SEED)
     results[DQN] = simulate(env4, dqn_policy, bet_units, N_HANDS)
+
+    # Same strategy as row 3 (Hi-Lo), different rules: single deck + late
+    # surrender, both real adjustable rules, not a different game. See
+    # rule_impact.py for why this specific combination is what it takes to
+    # get a no-double/no-split game to a genuine positive edge.
+    env5 = ShoeBlackjackEnv(num_decks=1, seed=SEED)
+    results[HILO_FAVORABLE] = simulate(env5, basic_policy, bet_units, N_HANDS, surrender_fn=SURRENDER_FN)
 
     print(f"{'Strategy':<28}{'Win%':>8}{'Push%':>8}{'Loss%':>8}{'Edge%':>10}{'Final Bankroll':>18}")
     for name, stats in results.items():
